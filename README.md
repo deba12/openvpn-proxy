@@ -1,12 +1,14 @@
-# openvpn-proxy
+# openvpn-vpn-route
 
-A Docker container that tunnels HTTP traffic through an OpenVPN server to a backend service on the client's private network.
+OpenVPN server in Docker that extends a remote private network onto the host's routing table.
 
 ```
-[Browser] → [nginx :80] → [OpenVPN tunnel] → [MikroTik / OpenVPN client] → [backend 10.20.30.50:80]
+[host scripts] ──▶ kernel routing ──▶ tun0 ──▶ OpenVPN (TCP) ──▶ MikroTik / client ──▶ 10.20.30.x
 ```
 
-The container runs both an OpenVPN server and an nginx reverse proxy. The remote side (client) connects to this container over OpenVPN, exposing its private network. Nginx then proxies HTTP traffic to a host on that private network.
+When the VPN client connects, a route to its private network is added to the **host** routing table. When it disconnects the route is removed. No proxy, no NAT — just a routed tunnel.
+
+Runs with `network_mode: host` so Docker adds zero iptables rules. Tunnel traffic is additionally marked `NOTRACK` to skip kernel connection tracking entirely.
 
 ---
 
@@ -14,14 +16,12 @@ The container runs both an OpenVPN server and an nginx reverse proxy. The remote
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `SERVER_IP` | yes | — | Public IP or hostname of this server. Used in generated client configs. |
-| `CLIENT_NETWORK` | yes | — | Network behind the VPN client, e.g. `10.20.30.0/24`. A static route to this network is added when the client connects. |
-| `BACKEND_IP` | yes | — | IP of the backend service nginx proxies to. Must be within `CLIENT_NETWORK`. |
-| `BACKEND_PORT` | no | `80` | Port of the backend service. |
-| `VPN_SUBNET` | no | `10.8.0.0` | VPN tunnel address pool. |
-| `VPN_SUBNET_MASK` | no | `255.255.255.0` | Netmask for the VPN tunnel pool. |
+| `SERVER_IP` | yes | — | Public IP or hostname of this server. Written into generated client configs. |
+| `CLIENT_NETWORK` | yes | — | Network behind the VPN client, e.g. `10.20.30.0/24`. Added as a host route on connect, removed on disconnect. |
+| `VPN_SUBNET` | no | `10.8.0.0` | VPN tunnel address pool. Change only if it conflicts with existing host routes. |
+| `VPN_SUBNET_MASK` | no | `255.255.255.0` | Netmask for the VPN pool. |
 
-OpenVPN listens on TCP **1194**. Nginx listens on TCP **80**. Both are fixed inside the container; remap them with Docker port bindings if needed.
+OpenVPN binds directly to the host on TCP **1194** (host networking — no port mapping).
 
 ---
 
@@ -29,46 +29,36 @@ OpenVPN listens on TCP **1194**. Nginx listens on TCP **80**. Both are fixed ins
 
 ### 1. Configure environment
 
-Create a `.env` file:
-
-```env
+```bash
+cat > .env <<EOF
 SERVER_IP=203.0.113.10
 CLIENT_NETWORK=10.20.30.0/24
-BACKEND_IP=10.20.30.50
-BACKEND_PORT=80
+EOF
 ```
 
 ### 2. Initialize the PKI (once)
 
 ```bash
-docker compose run --rm openvpn-proxy init-ca.sh
+docker compose run --rm openvpn init-ca.sh
 ```
 
-This generates the CA, server certificate, and DH parameters. Everything is stored in the `openvpn-pki` Docker volume and survives container restarts.
+Generates CA, server certificate, and DH parameters into the `openvpn-pki` volume.
 
 ### 3. Generate a client config
 
-**Standard OpenVPN client:**
+**Standard OpenVPN:**
 ```bash
-docker compose run --rm openvpn-proxy gen-client.sh myclient
+docker compose run --rm openvpn gen-client.sh myclient
+docker compose cp openvpn:/etc/openvpn/pki/clients/myclient/ ./
 ```
 
-**MikroTik client:**
+**MikroTik:**
 ```bash
-docker compose run --rm openvpn-proxy gen-mikrotik.sh mkt-client
+docker compose run --rm openvpn gen-mikrotik.sh mkt-client
+docker compose cp openvpn:/etc/openvpn/pki/clients/mkt-client/ ./
 ```
 
-### 4. Copy the config files out of the container
-
-```bash
-# Standard OpenVPN — single .ovpn file
-docker compose cp openvpn-proxy:/etc/openvpn/pki/clients/myclient/ ./
-
-# MikroTik — several files, see below
-docker compose cp openvpn-proxy:/etc/openvpn/pki/clients/mkt-client/ ./
-```
-
-### 5. Start the container
+### 4. Start
 
 ```bash
 docker compose up -d
@@ -80,48 +70,71 @@ docker compose up -d
 
 ### Standard OpenVPN Client
 
-Import `myclient.ovpn` into your OpenVPN client. No further configuration needed — the file is self-contained with inline certificates.
+Import `myclient.ovpn` — self-contained with inline certificates, no extra steps.
 
 ### MikroTik (RouterOS 7+)
 
-The generator produces three files for MikroTik:
+The generator produces:
 
-| File | Purpose |
+| File | Use |
 |---|---|
-| `mkt-client.ovpn` | Import via Winbox → Files (RouterOS 7+) |
-| `mkt-client-routeros.rsc` | RouterOS CLI script |
-| `ca.crt`, `mkt-client.crt`, `mkt-client.key` | Individual cert files for manual upload |
+| `mkt-client.ovpn` | Winbox → Files → import (RouterOS 7+) |
+| `mkt-client-routeros.rsc` | Paste into terminal or `/import` |
+| `ca.crt` / `mkt-client.crt` / `mkt-client.key` | Manual upload for older RouterOS |
 
-**Option A — Winbox import (RouterOS 7+):**
+**RouterOS CLI path:**
+1. Upload `ca.crt`, `mkt-client.crt`, `mkt-client.key` via Winbox Files or SCP
+2. Run: `/import file=mkt-client-routeros.rsc`
 
-1. Open Winbox → Files → Upload `mkt-client.ovpn`
-2. Go to Interfaces → add OVPN Client → import the file
+**Required on the MikroTik side:**
 
-**Option B — CLI script:**
-
-1. Upload `ca.crt`, `mkt-client.crt`, `mkt-client.key` to RouterOS via Winbox Files or SCP
-2. In the RouterOS terminal:
-   ```
-   /import file=mkt-client-routeros.rsc
-   ```
-
-**MikroTik NAT (on the remote router):**
-
-The container only adds a route to `CLIENT_NETWORK` — it does not push any routes to the client and does not configure NAT. The MikroTik admin must add a NAT masquerade rule so traffic from the VPN tunnel can reach the private network:
+The host server's scripts will source-IP from the VPN pool (`10.8.0.1`). The backend hosts need a return route. Simplest way — add a static route on MikroTik pointing the VPN pool back through the tunnel interface:
 
 ```
-/ip firewall nat add chain=srcnat src-address=10.8.0.0/24 action=masquerade
+/ip route add dst-address=10.8.0.0/24 gateway=<ovpn-interface>
 ```
 
-Adjust `src-address` to match `VPN_SUBNET`.
+If all backend hosts use MikroTik as their default gateway this is usually already satisfied.
+
+---
+
+## How Routes Work
+
+| Event | Host routing table |
+|---|---|
+| Container starts | `10.8.0.0/24 via tun0` added (VPN pool) |
+| Client connects | `10.20.30.0/24 via <client VPN IP>` added |
+| Client reconnects | Old session killed, route replaced atomically |
+| Client disconnects | `10.20.30.0/24` removed |
+
+Your scripts on the host connect to `10.20.30.x` directly — the kernel routes the packets through `tun0` with no userspace proxy in the path.
+
+---
+
+## Performance Notes
+
+- `network_mode: host` — Docker adds no iptables rules, no bridge, no NAT
+- No NAT on the server side — pure routing, all in kernel space
+- Only userspace overhead is OpenVPN itself doing AES-256-CBC encrypt/decrypt
 
 ---
 
 ## Reconnect Behaviour
 
-Only one client can be active at a time. When the same certificate reconnects (e.g. after a link failure), the container automatically terminates the old session via the OpenVPN management interface before the new session is fully established. The static route is updated to the new VPN IP atomically.
+`duplicate-cn` allows the same certificate to reconnect. The `client-connect` hook immediately sends `kill <CN>` to the management socket, terminating the stale session before the new one is fully established. The route is then replaced atomically with the new client VPN IP.
 
-This is intentional: the client always wins, and a stale session never blocks a reconnect.
+---
+
+## Switching to Older MikroTik (RouterOS 6.x)
+
+RouterOS 6.x does not support SHA256. Delete `/etc/openvpn/server.conf` inside the container (it is regenerated on next start) and set:
+
+```bash
+# Add to .env
+OVPN_EXTRA_AUTH=SHA1
+```
+
+Then regenerate the MikroTik config and re-import. RouterOS 6.x may also require `dev tap` — consult the router admin for the correct mode.
 
 ---
 
@@ -131,42 +144,14 @@ This is intentional: the client always wins, and a stale session never blocks a 
 .
 ├── Dockerfile
 ├── docker-compose.yml
-├── scripts/
-│   ├── start.sh              # Container entrypoint
-│   ├── init-ca.sh            # Initialize PKI (run once)
-│   ├── gen-client.sh         # Generate standard OpenVPN client config
-│   ├── gen-mikrotik.sh       # Generate MikroTik client configs
-│   ├── client-connect.sh     # OpenVPN hook: kill old session, add route
-│   └── client-disconnect.sh  # OpenVPN hook: remove route
+├── .env                         # SERVER_IP, CLIENT_NETWORK (not committed)
+└── scripts/
+    ├── start.sh                 # Entrypoint: configures kernel, writes server.conf, execs OpenVPN
+    ├── init-ca.sh               # Initialize PKI — run once
+    ├── gen-client.sh            # Generate standard OpenVPN .ovpn
+    ├── gen-mikrotik.sh          # Generate MikroTik .ovpn + RouterOS script + cert files
+    ├── client-connect.sh        # Hook: kill stale session, add host route
+    └── client-disconnect.sh     # Hook: remove host route
 ```
 
-PKI data is stored in the `openvpn-pki` Docker named volume, mounted at `/etc/openvpn/pki` inside the container.
-
----
-
-## Ports
-
-| Port | Protocol | Purpose |
-|---|---|---|
-| `1194` | TCP | OpenVPN server |
-| `80` | TCP | Nginx reverse proxy (HTTP) |
-
-To expose on different host ports without changing the container, edit `docker-compose.yml`:
-
-```yaml
-ports:
-  - "11194:1194/tcp"   # host port 11194 → container 1194
-  - "8080:80/tcp"      # host port 8080  → container 80
-```
-
----
-
-## Switching to Older MikroTik (RouterOS 6.x)
-
-RouterOS 6.x does not support TUN mode or SHA256. If the connection fails, edit `/etc/openvpn/server.conf` inside the container (or delete it and let `start.sh` regenerate it) and change:
-
-```
-auth SHA256  →  auth SHA1
-```
-
-Then regenerate the MikroTik config with `gen-mikrotik.sh` and re-import on the router. RouterOS 6.x also requires TAP mode (`dev tap`) which changes routing behaviour — contact the router admin for the correct interface mode setting.
+PKI lives in the `openvpn-pki` Docker named volume at `/etc/openvpn/pki`.

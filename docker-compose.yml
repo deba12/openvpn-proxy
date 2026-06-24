@@ -1,23 +1,18 @@
 services:
-  openvpn-proxy:
+  openvpn:
     build: .
+    network_mode: host
     cap_add:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
-    ports:
-      - "1194:1194/tcp"
-      - "80:80/tcp"
     environment:
-      # Required: public IP or hostname of this server (used in generated client configs)
+      # Required: public IP or hostname of this server (written into generated client configs)
       - SERVER_IP=${SERVER_IP}
-      # Required: network behind the VPN client to route, e.g. 10.20.30.0/24
+      # Required: network behind the VPN client, e.g. 10.20.30.0/24
+      # A host route to this network is added on client connect and removed on disconnect.
       - CLIENT_NETWORK=${CLIENT_NETWORK}
-      # Required: IP of the backend service nginx will proxy to
-      - BACKEND_IP=${BACKEND_IP}
-      # Port of the backend service
-      - BACKEND_PORT=${BACKEND_PORT:-80}
-      # VPN tunnel subnet (default fine for most setups)
+      # VPN tunnel subnet — change only if it conflicts with existing host routes
       - VPN_SUBNET=${VPN_SUBNET:-10.8.0.0}
       - VPN_SUBNET_MASK=${VPN_SUBNET_MASK:-255.255.255.0}
     volumes:
