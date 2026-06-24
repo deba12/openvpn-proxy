@@ -111,6 +111,45 @@ Your scripts on the host connect to `10.20.30.x` directly — the kernel routes 
 
 ---
 
+## Disabling Docker NAT and iptables
+
+### This container
+
+`network_mode: host` already means Docker adds **zero** iptables rules for this container — no DNAT, no MASQUERADE, no bridge. Nothing to disable.
+
+### System-wide (all containers on the host)
+
+If you want Docker to never touch iptables at all — for any container on the host — add to `/etc/docker/daemon.json`:
+
+```json
+{
+  "iptables": false
+}
+```
+
+Then restart Docker:
+
+```bash
+systemctl restart docker
+```
+
+**What this affects:** Docker will no longer create forwarding or NAT rules for any container. Containers using bridge networking (the default) will lose internet access unless you set up routing manually. Containers using `network_mode: host` (like this one) are unaffected — they never relied on Docker's iptables rules.
+
+**Safe combination:** Run this container with `network_mode: host` on a host where Docker has `"iptables": false`. This container works exactly the same; other containers that need bridge networking will need manual rules or a different approach (e.g. `network_mode: host` for them too, or an external firewall manager like `nftables`).
+
+### Verify Docker has added no rules
+
+After starting the container, confirm Docker has not inserted anything:
+
+```bash
+iptables -t nat -L DOCKER 2>/dev/null && echo "rules exist" || echo "no Docker nat rules"
+iptables -L DOCKER 2>/dev/null && echo "rules exist" || echo "no Docker filter rules"
+```
+
+Both should return "no Docker nat rules" / "no Docker filter rules" when `network_mode: host` is used or `"iptables": false` is set.
+
+---
+
 ## Performance Notes
 
 - `network_mode: host` — Docker adds no iptables rules, no bridge, no NAT
