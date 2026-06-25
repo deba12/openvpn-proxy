@@ -1,6 +1,5 @@
 #!/bin/bash
 # Container entrypoint — starts OpenVPN server only.
-# Routes to CLIENT_NETWORK are managed by client-connect/client-disconnect hooks.
 set -e
 
 : "${SERVER_IP:?SERVER_IP must be set (public IP or hostname of this server)}"
@@ -28,6 +27,32 @@ if [ ! -f "$PKI_DIR/ca.crt" ]; then
     exit 1
 fi
 
+# ── Parse CLIENT_NETWORK into IP and netmask for OpenVPN config ───────────────
+CLIENT_IP="${CLIENT_NETWORK%/*}"
+CLIENT_PREFIX="${CLIENT_NETWORK#*/}"
+
+prefix_to_mask() {
+    local prefix=$1
+    local mask=""
+    local octet
+    for i in 1 2 3 4; do
+        if [ $prefix -ge 8 ]; then
+            octet=255
+            prefix=$((prefix - 8))
+        elif [ $prefix -gt 0 ]; then
+            octet=$(( 256 - (1 << (8 - prefix)) ))
+            prefix=0
+        else
+            octet=0
+        fi
+        mask="${mask}${octet}"
+        [ $i -lt 4 ] && mask="${mask}."
+    done
+    echo "$mask"
+}
+
+CLIENT_MASK=$(prefix_to_mask "$CLIENT_PREFIX")
+
 # ── OpenVPN server config ─────────────────────────────────────────────────────
 OVPN_CONF=/etc/openvpn/server.conf
 cat > "$OVPN_CONF" <<EOF
@@ -42,6 +67,9 @@ dh   $PKI_DIR/dh.pem
 
 server $VPN_SUBNET $VPN_SUBNET_MASK
 topology subnet
+
+# Statically route client network onto the host routing table when OpenVPN starts
+route $CLIENT_IP $CLIENT_MASK
 
 # Allow same certificate to reconnect — new connection kills the old one
 # via the management interface in client-connect.sh.

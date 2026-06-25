@@ -1,13 +1,17 @@
 #!/bin/bash
 # OpenVPN --client-disconnect hook.
-# Removes the static route when the client disconnects.
+# Logs client disconnection events.
 
-log() { logger -t ovpn-disconnect "$*"; echo "$*"; }
+log() {
+    local msg="$*"
+    logger -t ovpn-disconnect "$msg"
+    echo "$msg"
+    if [ -w /proc/1/fd/1 ]; then
+        echo "[$(date +'%Y-%m-%d %H:%M:%S')] ovpn-disconnect: $msg" > /proc/1/fd/1
+    fi
+}
 
-if [ -n "$CLIENT_NETWORK" ]; then
-    ip route del "$CLIENT_NETWORK" 2>/dev/null && \
-        log "Route $CLIENT_NETWORK removed" || \
-        log "Route $CLIENT_NETWORK not found (already gone)"
-fi
+client_ip="${ifconfig_pool_remote_ip:-$ifconfig_remote}"
+log "Client disconnected: $common_name ($client_ip)"
 
 exit 0

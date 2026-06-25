@@ -36,13 +36,14 @@ OpenVPN server in Docker that adds a route to a remote private network onto the 
 | `scripts/init-ca.sh` | One-time PKI init via easy-rsa |
 | `scripts/gen-client.sh` | Generate standard OpenVPN `.ovpn` |
 | `scripts/gen-mikrotik.sh` | Generate MikroTik `.ovpn` + RouterOS CLI script + individual cert files |
-| `scripts/client-connect.sh` | OpenVPN hook: kills stale session via management socket, adds host route |
-| `scripts/client-disconnect.sh` | OpenVPN hook: removes host route |
+| `scripts/client-connect.sh` | OpenVPN hook: kills all other active sessions globally, writes dynamic `iroute` |
+| `scripts/client-disconnect.sh` | OpenVPN hook: logs client disconnection |
 
 ## Route lifecycle
 
-- On client connect: `ip route replace CLIENT_NETWORK via <client VPN IP>` (in `client-connect.sh`)
-- On client disconnect: `ip route del CLIENT_NETWORK` (in `client-disconnect.sh`)
+- On container start: OpenVPN statically creates the host route (`route CLIENT_NETWORK`) on interface startup.
+- On client connect: Terminate all other connections via management socket, then write client's internal route (`iroute CLIENT_NETWORK`) to OpenVPN's temporary config file.
+- On client disconnect: Log the disconnection. The host route remains in the routing table pointing to `tun0`.
 - `server.conf` is regenerated on every container start from env vars
 
 ## Dependencies in the image
