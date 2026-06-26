@@ -2,6 +2,11 @@
 # Container entrypoint — starts OpenVPN server only.
 set -e
 
+# If the user passed a script to execute (like init-ca.sh), run it directly and exit
+if [[ "$1" == *.sh ]]; then
+    exec "$@"
+fi
+
 : "${SERVER_IP:?SERVER_IP must be set (public IP or hostname of this server)}"
 : "${CLIENT_NETWORK:?CLIENT_NETWORK must be set (e.g. 10.20.30.0/24)}"
 
@@ -18,7 +23,14 @@ if [ ! -e /dev/net/tun ]; then
 fi
 
 # ── IP forwarding ─────────────────────────────────────────────────────────────
-echo 1 > /proc/sys/net/ipv4/ip_forward
+if [ -w /proc/sys/net/ipv4/ip_forward ]; then
+    echo 1 > /proc/sys/net/ipv4/ip_forward
+else
+    if [ "$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)" != "1" ]; then
+        echo "WARNING: /proc/sys/net/ipv4/ip_forward is not writable. Please ensure IP forwarding is enabled on the host:"
+        echo "  sysctl -w net.ipv4.ip_forward=1"
+    fi
+fi
 
 # ── PKI check ────────────────────────────────────────────────────────────────
 if [ ! -f "$PKI_DIR/ca.crt" ]; then

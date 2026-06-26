@@ -25,6 +25,35 @@ OpenVPN binds directly to the host on TCP **1194** (host networking — no port 
 
 ---
 
+## Prerequisites (Host System Setup)
+
+Before running the container, ensure your Linux host meets the following networking and device requirements:
+
+### 1. Enable IP Forwarding
+Since this container routes traffic between the VPN interface (`tun0`) and the local interface, IP forwarding must be enabled on the host system:
+```bash
+# Enable temporarily
+sudo sysctl -w net.ipv4.ip_forward=1
+
+# Or persist in /etc/sysctl.conf
+echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+```
+
+### 2. Verify or Create TUN Device Node
+The container needs access to the host's `/dev/net/tun` device. If this node is missing on the host, create it:
+```bash
+# Ensure the kernel module is loaded
+sudo modprobe tun
+
+# Create the directory and device node
+sudo mkdir -p /dev/net
+sudo mknod /dev/net/tun c 10 200
+sudo chmod 666 /dev/net/tun
+```
+
+---
+
 ## Quick Start
 
 ### 1. Configure environment
