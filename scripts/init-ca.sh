@@ -21,8 +21,15 @@ export EASYRSA_REQ_CN="VPN-CA"
 
 cd /usr/share/easy-rsa
 
-echo ">>> Initializing PKI..."
+# Run init-pki in a temp directory first, then copy contents to prevent "Device or resource busy"
+# error caused by Easy-RSA attempting to delete the mounted /etc/openvpn/pki volume.
+rm -rf /tmp/pki-temp
+export EASYRSA_PKI=/tmp/pki-temp
 ./easyrsa init-pki
+mkdir -p "$PKI_DIR"
+cp -rp /tmp/pki-temp/* "$PKI_DIR"/
+rm -rf /tmp/pki-temp
+export EASYRSA_PKI="$PKI_DIR"
 
 echo ">>> Building CA (no password)..."
 ./easyrsa build-ca nopass
