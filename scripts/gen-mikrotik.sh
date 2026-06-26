@@ -29,7 +29,7 @@ if [ -f "$PKI_DIR/issued/${CLIENT_NAME}.crt" ]; then
     echo "Certificate for '$CLIENT_NAME' already exists. Skipping generation."
 else
     echo ">>> Generating certificate for '$CLIENT_NAME'..."
-    easyrsa build-client-full "$CLIENT_NAME" nopass
+    ./easyrsa build-client-full "$CLIENT_NAME" nopass
 fi
 
 mkdir -p "$OUT_DIR"

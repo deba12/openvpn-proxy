@@ -22,16 +22,16 @@ export EASYRSA_REQ_CN="VPN-CA"
 cd /usr/share/easy-rsa
 
 echo ">>> Initializing PKI..."
-easyrsa init-pki
+./easyrsa init-pki
 
 echo ">>> Building CA (no password)..."
-easyrsa build-ca nopass
+./easyrsa build-ca nopass
 
 echo ">>> Generating server certificate..."
-easyrsa build-server-full server nopass
+./easyrsa build-server-full server nopass
 
 echo ">>> Generating DH parameters (this takes a while)..."
-easyrsa gen-dh
+./easyrsa gen-dh
 
 mkdir -p "$PKI_DIR/clients"
 
