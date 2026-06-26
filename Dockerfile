@@ -1,6 +1,6 @@
 FROM debian:trixie-slim
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install --no-install-recommends -y \
     openvpn \
     easy-rsa \
     iproute2 \
