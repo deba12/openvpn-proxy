@@ -6,7 +6,7 @@ OpenVPN server in Docker that extends a remote private network onto the host's r
 [host scripts] ──▶ kernel routing ──▶ tun0 ──▶ OpenVPN (TCP) ──▶ MikroTik / client ──▶ 10.20.30.x
 ```
 
-When the VPN client connects, a route to its private network is added to the **host** routing table. When it disconnects the route is removed. No proxy, no NAT — just a routed tunnel.
+The route to the client's private network is added statically to the **host** routing table when the server container starts. When the client connects, OpenVPN dynamically registers the internal route (`iroute`) to direct packets to the client. No proxy, no NAT — just a routed tunnel.
 
 Runs with `network_mode: host` so Docker adds zero iptables rules. Tunnel traffic is additionally marked `NOTRACK` to skip kernel connection tracking entirely.
 
@@ -17,7 +17,7 @@ Runs with `network_mode: host` so Docker adds zero iptables rules. Tunnel traffi
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `SERVER_IP` | yes | — | Public IP or hostname of this server. Written into generated client configs. |
-| `CLIENT_NETWORK` | yes | — | Network behind the VPN client, e.g. `10.20.30.0/24`. Added as a host route on connect, removed on disconnect. |
+| `CLIENT_NETWORK` | yes | — | Network behind the VPN client, e.g. `10.20.30.0/24`. Statically routed on container start. |
 | `VPN_SUBNET` | no | `10.8.0.0` | VPN tunnel address pool. Change only if it conflicts with existing host routes. |
 | `VPN_SUBNET_MASK` | no | `255.255.255.0` | Netmask for the VPN pool. |
 
@@ -100,14 +100,14 @@ If all backend hosts use MikroTik as their default gateway this is usually alrea
 
 ## How Routes Work
 
-| Event | Host routing table |
+| Event | Host routing table / OpenVPN behavior |
 |---|---|
-| Container starts | `10.8.0.0/24 via tun0` added (VPN pool) |
-| Client connects | `10.20.30.0/24 via <client VPN IP>` added |
-| Client reconnects | Old session killed, route replaced atomically |
-| Client disconnects | `10.20.30.0/24` removed |
+| Container starts | `10.8.0.0/24 via tun0` (VPN pool) & `10.20.30.0/24 via tun0` added (static routing) |
+| Client connects | Old sessions killed globally; `iroute 10.20.30.0 255.255.255.0` registered internally |
+| Client reconnects | Old session killed, new session dynamically registers the `iroute` mapping |
+| Client disconnects | No routing table changes (static route remains pointing to `tun0`) |
 
-Your scripts on the host connect to `10.20.30.x` directly — the kernel routes the packets through `tun0` with no userspace proxy in the path.
+Your scripts on the host connect to `10.20.30.x` directly — the kernel routes the packets through `tun0` with no userspace proxy in the path. Since the host route is static, traffic simply cannot pass through `tun0` when the client is disconnected.
 
 ---
 
@@ -160,7 +160,7 @@ Both should return "no Docker nat rules" / "no Docker filter rules" when `networ
 
 ## Reconnect Behaviour
 
-`duplicate-cn` allows the same certificate to reconnect. The `client-connect` hook immediately sends `kill <CN>` to the management socket, terminating the stale session before the new one is fully established. The route is then replaced atomically with the new client VPN IP.
+`duplicate-cn` allows the same certificate (or multiple links from the same office) to reconnect. The `client-connect` hook queries the management socket status interface, identifies all other active sessions globally, and terminates them, ensuring only one client connection remains active on the server. The new connection then dynamically registers the `iroute` mapping.
 
 ---
 
@@ -185,12 +185,12 @@ Then regenerate the MikroTik config and re-import. RouterOS 6.x may also require
 ├── docker-compose.yml
 ├── .env                         # SERVER_IP, CLIENT_NETWORK (not committed)
 └── scripts/
-    ├── start.sh                 # Entrypoint: configures kernel, writes server.conf, execs OpenVPN
+    ├── start.sh                 # Entrypoint: configures kernel, parses CIDR, writes server.conf with static route, execs OpenVPN
     ├── init-ca.sh               # Initialize PKI — run once
     ├── gen-client.sh            # Generate standard OpenVPN .ovpn
     ├── gen-mikrotik.sh          # Generate MikroTik .ovpn + RouterOS script + cert files
-    ├── client-connect.sh        # Hook: kill stale session, add host route
-    └── client-disconnect.sh     # Hook: remove host route
+    ├── client-connect.sh        # Hook: terminates other sessions globally, configures dynamic iroute
+    └── client-disconnect.sh     # Hook: logs client disconnection
 ```
 
 PKI lives in the `openvpn-pki` Docker named volume at `/etc/openvpn/pki`.
