@@ -21,9 +21,9 @@ fi
 cd /usr/share/easy-rsa
 
 if [ -f "$PKI_DIR/issued/${CLIENT_NAME}.crt" ]; then
-    echo "Certificate for '$CLIENT_NAME' already exists. Skipping generation."
+    echo "Certificate for '$CLIENT_NAME' already exists. Skipping generation." >&2
 else
-    echo ">>> Generating certificate for '$CLIENT_NAME'..."
+    echo ">>> Generating certificate for '$CLIENT_NAME'..." >&2
     ./easyrsa build-client-full "$CLIENT_NAME" nopass
 fi
 
@@ -56,7 +56,6 @@ $(cat "$PKI_DIR/private/${CLIENT_NAME}.key")
 </key>
 EOF
 
-echo ""
-echo "Client config written to: $OVPN_FILE"
-echo "Copy it out of the container:"
-echo "  docker compose cp openvpn-proxy:$OVPN_FILE ./"
+cat "$OVPN_FILE"
+echo "" >&2
+echo "Client config written to: $OVPN_FILE" >&2
