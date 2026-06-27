@@ -98,7 +98,7 @@ auth SHA256
 persist-key
 persist-tun
 
-status /var/log/openvpn-status.log
+log /dev/stdout
 verb 3
 
 # Management socket — used by client-connect.sh to terminate stale sessions.
