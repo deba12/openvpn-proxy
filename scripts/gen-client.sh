@@ -41,7 +41,7 @@ nobind
 persist-key
 persist-tun
 remote-cert-tls server
-cipher AES-256-CBC
+data-ciphers AES-256-GCM:AES-128-GCM:AES-256-CBC
 auth SHA256
 verb 3
 

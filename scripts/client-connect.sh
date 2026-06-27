@@ -13,12 +13,7 @@ MGMT_HOST=127.0.0.1
 MGMT_PORT=5555
 
 log() {
-    local msg="$*"
-    logger -t ovpn-connect "$msg"
-    echo "$msg"
-    if [ -w /proc/1/fd/1 ]; then
-        echo "[$(date +'%Y-%m-%d %H:%M:%S')] ovpn-connect: $msg" > /proc/1/fd/1
-    fi
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] ovpn-connect: $*" >&2
 }
 
 new_real_address=""
