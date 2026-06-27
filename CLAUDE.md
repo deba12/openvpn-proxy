@@ -17,7 +17,7 @@ OpenVPN server in Docker that adds a route to a remote private network onto the 
 - No NAT on the server side — pure routing only
 - No nginx or any userspace proxy — removed intentionally for performance
 - `duplicate-cn` + management socket kill — allows client reconnect to overwrite a stale session
-- MikroTik compatibility — no `tls-auth`, no `tls-crypt`, no compression, `AES-256-CBC` only
+- MikroTik compatibility — no `tls-auth`, no `tls-crypt`, no compression, `AES-256-CBC` included in `data-ciphers`; modern clients negotiate GCM
 
 ## Environment variables
 

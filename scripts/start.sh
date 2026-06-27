@@ -90,7 +90,7 @@ duplicate-cn
 keepalive 10 60
 
 # MikroTik-compatible: no tls-auth, no tls-crypt, no compression.
-data-ciphers AES-256-CBC
+data-ciphers AES-256-GCM:AES-128-GCM:AES-256-CBC
 data-ciphers-fallback AES-256-CBC
 cipher AES-256-CBC
 auth SHA256
