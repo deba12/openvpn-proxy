@@ -99,7 +99,7 @@ persist-key
 persist-tun
 
 status /var/log/openvpn-status.log
-log-append /var/log/openvpn.log
+log /dev/stderr
 verb 3
 
 # Management socket — used by client-connect.sh to terminate stale sessions.
